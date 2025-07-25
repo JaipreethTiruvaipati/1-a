@@ -1,0 +1,8 @@
+paddlepaddle==2.5.1
+paddlenlp==2.6.0
+paddleocr==2.7.0
+pymupdf==1.23.7
+Pillow==10.0.0
+numpy==1.24.3
+opencv-python-headless==4.8.0.74
+langdetect==1.0.9 

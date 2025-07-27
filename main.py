@@ -183,64 +183,73 @@ def create_feature_vector(block, mean_font_size, std_font_size, page_height, all
     """
     Create a feature vector for heading classification.
     """
-    bbox = block.get("bbox", [0, 0, 0, 0])
-    text = block.get("text", "").strip()
-    font_size = block.get("font_size", 0)
-    is_bold = block.get("is_bold", False)
-    is_title = block.get("is_title", False)
-    font_name = block.get("font_name", "")
-    color = block.get("color", 0)
+    try:
+        bbox = block.get("bbox", [0, 0, 0, 0])
+        text = block.get("text", "").strip()
+        font_size = block.get("font_size", 0)
+        is_bold = block.get("is_bold", False)
+        is_title = block.get("is_title", False)
+        font_name = block.get("font_name", "")
+        color = block.get("color", 0)
+        
+        # Positional features
+        x_position = bbox[0]  # Left position (indentation)
+        y_position = bbox[1]  # Top position
+        width = bbox[2] - bbox[0]
+        height = bbox[3] - bbox[1]
+        
+        # Text features
+        text_length = len(text)
+        words = text.split()
+        word_count = len(words)
+        avg_word_length = sum(len(word) for word in words) / word_count if word_count > 0 else 0
+        has_numbering = 1 if re.match(r'^\d+\.(\d+\.)*\s', text) else 0
+        all_caps = 1 if text.isupper() else 0
+        title_case = 1 if text.title() == text else 0
+        
+        # Normalize features
+        norm_font_size = (font_size - mean_font_size) / std_font_size if std_font_size > 0 else 0
+        norm_x_position = x_position / 1000  # Assuming page width around 1000 pixels
+        norm_y_position = y_position / page_height
+        
+        # Spacing features - check space above this block
+        space_above = y_position
+        for other_block in all_blocks:
+            try:
+                other_bbox = other_block.get("bbox", [0, 0, 0, 0])
+                # If block is above the current block and horizontally overlapping
+                if (other_bbox[3] <= y_position and 
+                    max(0, min(bbox[2], other_bbox[2]) - max(bbox[0], other_bbox[0])) > 0):
+                    space_above = min(space_above, y_position - other_bbox[3])
+            except Exception:
+                continue
+        
+        norm_space_above = space_above / 100  # Normalize by assuming 100 pixels is significant
+        
+        # Create feature vector
+        features = [
+            norm_font_size,
+            1 if is_bold else 0,
+            1 if is_title else 0,
+            norm_x_position,
+            norm_y_position,
+            width / 1000,
+            height / 100,
+            text_length / 100,
+            word_count / 10,
+            avg_word_length / 10,
+            has_numbering,
+            all_caps,
+            title_case,
+            norm_space_above
+        ]
+        
+        return features
     
-    # Positional features
-    x_position = bbox[0]  # Left position (indentation)
-    y_position = bbox[1]  # Top position
-    width = bbox[2] - bbox[0]
-    height = bbox[3] - bbox[1]
-    
-    # Text features
-    text_length = len(text)
-    words = text.split()
-    word_count = len(words)
-    avg_word_length = sum(len(word) for word in words) / word_count if word_count > 0 else 0
-    has_numbering = 1 if re.match(r'^\d+\.(\d+\.)*\s', text) else 0
-    all_caps = 1 if text.isupper() else 0
-    title_case = 1 if text.title() == text else 0
-    
-    # Normalize features
-    norm_font_size = (font_size - mean_font_size) / std_font_size if std_font_size > 0 else 0
-    norm_x_position = x_position / 1000  # Assuming page width around 1000 pixels
-    norm_y_position = y_position / page_height
-    
-    # Spacing features - check space above this block
-    space_above = y_position
-    for other_block in all_blocks:
-        other_bbox = other_block.get("bbox", [0, 0, 0, 0])
-        # If block is above the current block and horizontally overlapping
-        if (other_bbox[3] <= y_position and 
-            max(0, min(bbox[2], other_bbox[2]) - max(bbox[0], other_bbox[0])) > 0):
-            space_above = min(space_above, y_position - other_bbox[3])
-    
-    norm_space_above = space_above / 100  # Normalize by assuming 100 pixels is significant
-    
-    # Create feature vector
-    features = [
-        norm_font_size,
-        1 if is_bold else 0,
-        1 if is_title else 0,
-        norm_x_position,
-        norm_y_position,
-        width / 1000,
-        height / 100,
-        text_length / 100,
-        word_count / 10,
-        avg_word_length / 10,
-        has_numbering,
-        all_caps,
-        title_case,
-        norm_space_above
-    ]
-    
-    return features
+    except Exception as e:
+        print(f"Warning: Error creating feature vector: {e}")
+        # Return default feature vector
+        return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
 def classify_heading_level(features, prev_heading_level=None):
     """
@@ -300,22 +309,40 @@ def classify_and_extract_headings(result, pdf_path, page_num, doc_language='en')
     
     # Get font information for all blocks
     for block in text_blocks:
-        bbox = block.get("bbox", [0, 0, 0, 0])
-        text = block.get("text", "").strip()
-        
-        # Skip empty text
-        if not text:
-            continue
-        
-        # Get font info
-        font_info = get_font_info(pdf_path, page_num, bbox)
-        block["font_size"] = font_info["avg_font_size"]
-        block["is_bold"] = font_info["is_bold"]
-        block["font_name"] = font_info["font_name"]
-        block["color"] = font_info["color"]
-        
-        # Check if block is marked as title by PP-DocLayout
-        block["is_title"] = block.get("type") == "title"
+        try:
+            bbox = block.get("bbox", [0, 0, 0, 0])
+            text = block.get("text", "").strip()
+            
+            # Skip empty text
+            if not text:
+                continue
+            
+            # Get font info
+            font_info = get_font_info(pdf_path, page_num, bbox)
+            
+            # Check if all required keys exist in font_info
+            if "avg_font_size" not in font_info or "is_bold" not in font_info or "font_name" not in font_info or "color" not in font_info:
+                # Use default values if missing
+                block["font_size"] = 0
+                block["is_bold"] = False
+                block["font_name"] = ""
+                block["color"] = 0
+            else:
+                block["font_size"] = font_info["avg_font_size"]
+                block["is_bold"] = font_info["is_bold"]
+                block["font_name"] = font_info["font_name"]
+                block["color"] = font_info["color"]
+            
+            # Check if block is marked as title by PP-DocLayout
+            block["is_title"] = block.get("type") == "title"
+        except Exception as e:
+            # If there's any error processing this block, set default values
+            block["font_size"] = 0
+            block["is_bold"] = False
+            block["font_name"] = ""
+            block["color"] = 0
+            block["is_title"] = False
+            print(f"Warning: Error processing block: {e}")
     
     # Calculate statistics for font sizes
     font_sizes = [block["font_size"] for block in text_blocks if block["font_size"] > 0]
@@ -326,9 +353,13 @@ def classify_and_extract_headings(result, pdf_path, page_num, doc_language='en')
     std_font_size = np.std(font_sizes)
     
     # Get page height for normalization
-    doc = fitz.open(pdf_path)
-    page_height = doc[page_num].rect.height
-    doc.close()
+    try:
+        doc = fitz.open(pdf_path)
+        page_height = doc[page_num].rect.height
+        doc.close()
+    except Exception as e:
+        print(f"Warning: Error getting page height: {e}")
+        page_height = 1000  # Default value if can't get real height
     
     # Sort blocks by vertical position (top to bottom)
     text_blocks.sort(key=lambda x: x.get("bbox", [0, 0, 0, 0])[1])
@@ -337,39 +368,43 @@ def classify_and_extract_headings(result, pdf_path, page_num, doc_language='en')
     prev_heading_level = None
     
     for block in text_blocks:
-        text = block.get("text", "").strip()
-        
-        # Skip if no text
-        if not text:
-            continue
-        
-        # Create feature vector
-        features = create_feature_vector(block, mean_font_size, std_font_size, page_height, text_blocks)
-        
-        # Classify heading level
-        heading_level = classify_heading_level(features, prev_heading_level)
-        
-        # Additional check for heading patterns
-        if not heading_level and is_heading_by_pattern(text, doc_language):
-            # Use indentation and text pattern to determine level
-            bbox = block.get("bbox", [0, 0, 0, 0])
-            x_position = bbox[0]
+        try:
+            text = block.get("text", "").strip()
             
-            if x_position < 100:
-                heading_level = "H1"
-            elif x_position < 150:
-                heading_level = "H2"
-            else:
-                heading_level = "H3"
-        
-        # If classified as a heading, add to the list and update previous level
-        if heading_level:
-            headings.append({
-                "level": heading_level,
-                "text": text,
-                "page": page_num + 1  # 1-indexed page numbers
-            })
-            prev_heading_level = heading_level
+            # Skip if no text
+            if not text:
+                continue
+            
+            # Create feature vector
+            features = create_feature_vector(block, mean_font_size, std_font_size, page_height, text_blocks)
+            
+            # Classify heading level
+            heading_level = classify_heading_level(features, prev_heading_level)
+            
+            # Additional check for heading patterns
+            if not heading_level and is_heading_by_pattern(text, doc_language):
+                # Use indentation and text pattern to determine level
+                bbox = block.get("bbox", [0, 0, 0, 0])
+                x_position = bbox[0]
+                
+                if x_position < 100:
+                    heading_level = "H1"
+                elif x_position < 150:
+                    heading_level = "H2"
+                else:
+                    heading_level = "H3"
+            
+            # If classified as a heading, add to the list and update previous level
+            if heading_level:
+                headings.append({
+                    "level": heading_level,
+                    "text": text,
+                    "page": page_num + 1  # 1-indexed page numbers
+                })
+                prev_heading_level = heading_level
+        except Exception as e:
+            print(f"Warning: Error classifying heading: {e}")
+            continue
     
     return headings
 
@@ -381,57 +416,108 @@ def extract_title(result, pdf_path):
     if not result:
         return "Unknown Title"
     
+    # Get PDF metadata for title
+    try:
+        doc = fitz.open(pdf_path)
+        if doc.metadata and doc.metadata.get('title'):
+            title_from_metadata = doc.metadata.get('title').strip()
+            if title_from_metadata:
+                return title_from_metadata
+        doc.close()
+    except Exception as e:
+        print(f"Warning: Error getting PDF metadata: {e}")
+    
     # Strategy 1: Use PP-DocLayout title type
     for item in result:
         if item.get("type") == "title":
-            return item.get("text", "").strip()
+            title_text = item.get("text", "").strip()
+            if title_text:
+                return title_text
     
     # Strategy 2: Use font size and position
     text_blocks = []
-    for item in result:
-        if item.get("type") == "text":
-            bbox = item.get("bbox", [0, 0, 0, 0])
-            text = item.get("text", "").strip()
-            
-            # Skip empty text
-            if not text:
-                continue
-            
-            # Get font info
-            font_info = get_font_info(pdf_path, 0, bbox)
-            
-            text_blocks.append({
-                "text": text,
-                "font_size": font_info["avg_font_size"],
-                "is_bold": font_info["is_bold"],
-                "y_position": bbox[1],  # Top position
-                "x_position": bbox[0],  # Left position
-                "width": bbox[2] - bbox[0],
-                "is_centered": False
-            })
+    try:
+        for item in result:
+            if item.get("type") == "text":
+                bbox = item.get("bbox", [0, 0, 0, 0])
+                text = item.get("text", "").strip()
+                
+                # Skip empty text
+                if not text:
+                    continue
+                
+                # Get font info
+                try:
+                    font_info = get_font_info(pdf_path, 0, bbox)
+                    
+                    text_blocks.append({
+                        "text": text,
+                        "font_size": font_info.get("avg_font_size", 0),
+                        "is_bold": font_info.get("is_bold", False),
+                        "y_position": bbox[1],  # Top position
+                        "x_position": bbox[0],  # Left position
+                        "width": bbox[2] - bbox[0],
+                        "is_centered": False
+                    })
+                except Exception as e:
+                    # If font info fails, still add the block with defaults
+                    text_blocks.append({
+                        "text": text,
+                        "font_size": 0,
+                        "is_bold": False,
+                        "y_position": bbox[1],
+                        "x_position": bbox[0],
+                        "width": bbox[2] - bbox[0],
+                        "is_centered": False
+                    })
+    except Exception as e:
+        print(f"Warning: Error processing text blocks: {e}")
     
     # If no text blocks, return default
     if not text_blocks:
-        return "Unknown Title"
+        # Strategy 3: Try direct text extraction
+        try:
+            doc = fitz.open(pdf_path)
+            if len(doc) > 0:
+                page_text = doc[0].get_text()
+                doc.close()
+                
+                if page_text:
+                    lines = [line.strip() for line in page_text.split('\n') if line.strip()]
+                    if lines:
+                        return lines[0][:100]  # First line, limited to 100 chars
+        except Exception as e:
+            print(f"Warning: Error with direct text extraction: {e}")
+            
+        # Extract filename as last resort
+        try:
+            base_filename = os.path.basename(pdf_path)
+            title_from_filename = os.path.splitext(base_filename)[0]
+            return title_from_filename
+        except:
+            return "Unknown Title"
     
     # Calculate page width to determine if text is centered
-    doc = fitz.open(pdf_path)
-    page_width = doc[0].rect.width
-    doc.close()
-    
-    # Check if blocks are centered
-    for block in text_blocks:
-        block_center = block["x_position"] + block["width"] / 2
-        page_center = page_width / 2
-        # If block center is within 10% of page center, consider it centered
-        if abs(block_center - page_center) < (page_width * 0.1):
-            block["is_centered"] = True
+    try:
+        doc = fitz.open(pdf_path)
+        page_width = doc[0].rect.width
+        doc.close()
+        
+        # Check if blocks are centered
+        for block in text_blocks:
+            block_center = block["x_position"] + block["width"] / 2
+            page_center = page_width / 2
+            # If block center is within 10% of page center, consider it centered
+            if abs(block_center - page_center) < (page_width * 0.1):
+                block["is_centered"] = True
+    except Exception as e:
+        print(f"Warning: Error determining text centering: {e}")
     
     # Sort by multiple criteria:
     # 1. Centered text (preferred for titles)
     # 2. Font size (larger first)
     # 3. Y-position (top first)
-    text_blocks.sort(key=lambda x: (not x["is_centered"], -x["font_size"], x["y_position"]))
+    text_blocks.sort(key=lambda x: (not x.get("is_centered", False), -x.get("font_size", 0), x.get("y_position", 0)))
     
     # The largest font at the top of the page is likely the title
     for block in text_blocks:
@@ -440,7 +526,13 @@ def extract_title(result, pdf_path):
             return block["text"]
     
     # Fallback to the first text block if nothing else works
-    return text_blocks[0]["text"] if text_blocks else "Unknown Title"
+    if text_blocks:
+        return text_blocks[0]["text"]
+    
+    # Extract filename as last resort
+    base_filename = os.path.basename(pdf_path)
+    title_from_filename = os.path.splitext(base_filename)[0]
+    return title_from_filename
 
 def process_pdf(pdf_path):
     """
@@ -455,44 +547,129 @@ def process_pdf(pdf_path):
     title = "Unknown Title"
     doc_language = 'en'  # Default language
     
+    # Extract filename as a basic title fallback
+    base_filename = os.path.basename(pdf_path)
+    filename_title = os.path.splitext(base_filename)[0]
+    title = filename_title  # Start with filename as title
+    
     try:
         # Open the PDF
         doc = fitz.open(pdf_path)
         
+        # Try to extract document info as fallback
+        if doc.metadata:
+            if doc.metadata.get('title'):
+                title = doc.metadata.get('title')
+        
+        # If the document has no pages, create a basic outline
+        if len(doc) == 0:
+            print(f"Warning: Document has no pages: {pdf_path}")
+            outline.append({
+                "level": "H1",
+                "text": "Empty Document",
+                "page": 1
+            })
+            return {"title": title, "outline": outline}
+        
         # Process each page
         for page_num in range(len(doc)):
-            # Convert PDF page to image
-            page = doc[page_num]
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            img_np = np.array(img)
-            
-            # Preprocess the image
-            preprocessed_img = preprocess_image(img_np)
-            
-            # Process the image with PP-Structure
-            result = table_engine(preprocessed_img)
-            
-            # Extract title from the first page
-            if page_num == 0:
-                title = extract_title(result, pdf_path)
-                # Detect document language from first page text
-                all_text = " ".join([item.get("text", "") for item in result if item.get("type") == "text"])
-                if all_text:
-                    doc_language = detect_language(all_text)
-            
-            # Extract headings from the page
-            page_headings = classify_and_extract_headings(result, pdf_path, page_num, doc_language)
-            outline.extend(page_headings)
+            try:
+                print(f"  Processing page {page_num+1}/{len(doc)}")
+                
+                # Try direct text extraction first as fallback
+                page = doc[page_num]
+                page_text = page.get_text()
+                
+                # If first page and no title yet, try to extract from text
+                if page_num == 0 and title == filename_title and page_text:
+                    # Take first non-empty line as potential title
+                    lines = [line.strip() for line in page_text.split('\n') if line.strip()]
+                    if lines:
+                        title = lines[0][:100]  # Limit title length
+                
+                # Try to identify headings from text directly
+                if page_text:
+                    lines = page_text.split('\n')
+                    for i, line in enumerate(lines):
+                        if line.strip() and len(line.strip()) < 100:  # Potential heading
+                            if line.isupper() or (i > 0 and not lines[i-1].strip()):
+                                # Uppercase text or preceded by blank line might be a heading
+                                heading_level = "H2"
+                                if line.strip()[0].isdigit() or len(line.strip()) < 30:
+                                    heading_level = "H1"
+                                
+                                outline.append({
+                                    "level": heading_level,
+                                    "text": line.strip(),
+                                    "page": page_num + 1
+                                })
+                
+                # Now try image-based extraction with PaddleOCR
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                img_np = np.array(img)
+                
+                # Preprocess the image
+                preprocessed_img = preprocess_image(img_np)
+                
+                # Process the image with PP-Structure
+                result = table_engine(preprocessed_img)
+                
+                # Debug output
+                print(f"    Found {len(result)} layout blocks")
+                
+                # Extract title from the first page
+                if page_num == 0:
+                    paddle_title = extract_title(result, pdf_path)
+                    if paddle_title and paddle_title != "Unknown Title":
+                        title = paddle_title
+                    
+                    # Detect document language from first page text
+                    all_text = " ".join([item.get("text", "") for item in result if item.get("type") == "text"])
+                    if all_text:
+                        doc_language = detect_language(all_text)
+                
+                # Extract headings from the page
+                page_headings = classify_and_extract_headings(result, pdf_path, page_num, doc_language)
+                
+                if page_headings:
+                    print(f"    Found {len(page_headings)} headings on page {page_num+1}")
+                    outline.extend(page_headings)
+                
+            except Exception as e:
+                print(f"Warning: Error processing page {page_num} of {pdf_path}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                continue  # Skip this page but continue with others
         
         doc.close()
         
     except Exception as e:
         print(f"Error processing PDF {pdf_path}: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Add at least one outline entry even if processing failed
+        if not outline:
+            outline.append({
+                "level": "H1",
+                "text": f"Document: {title}",
+                "page": 1
+            })
+        
         return {"title": title, "outline": outline}
     
     # Sort outline by page number
     outline.sort(key=lambda x: x["page"])
+    
+    # If no outline was found, create a basic one
+    if not outline:
+        print("No outline entries found, creating basic outline...")
+        outline.append({
+            "level": "H1",
+            "text": title,
+            "page": 1
+        })
     
     # Post-process the outline to ensure hierarchical consistency
     processed_outline = []
@@ -514,6 +691,9 @@ def process_pdf(pdf_path):
         processed_outline.append(item)
     
     print(f"Processed in {time.time() - start_time:.2f} seconds")
+    print(f"Final title: {title}")
+    print(f"Final outline entries: {len(processed_outline)}")
+    
     return {"title": title, "outline": processed_outline}
 
 def main():

@@ -12,8 +12,8 @@ from paddleocr import PPStructure
 print("Downloading PaddleOCR models...")
 
 # Initialize PPStructure to trigger model download
-# Using PP-StructureV3 for better layout analysis
-engine = PPStructure(layout=True, show_log=True, structure_version='PP-StructureV3')
+# Using PP-StructureV2 for better layout analysis
+engine = PPStructure(layout=True, show_log=True, structure_version='PP-StructureV2')
 
 print("Models downloaded successfully!")
 

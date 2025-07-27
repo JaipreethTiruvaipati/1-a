@@ -17,9 +17,9 @@ INPUT_DIR = "/app/input"
 OUTPUT_DIR = "/app/output"
 
 # Initialize the PP-Structure model with layout analysis
-# Using PP-StructureV3 for better layout analysis
+# Using PP-StructureV2 for better layout analysis
 print("Initializing PP-Structure model...")
-table_engine = PPStructure(layout=True, show_log=False, structure_version='PP-StructureV3')
+table_engine = PPStructure(layout=True, show_log=False, structure_version='PP-StructureV2')
 print("Model initialized.")
 
 def get_font_info(pdf_path, page_num, bbox):

@@ -24,50 +24,60 @@ print("Model initialized.")
 
 def get_font_info(pdf_path, page_num, bbox):
     """Extract font information from a specific region in a PDF page."""
-    doc = fitz.open(pdf_path)
-    page = doc[page_num]
-    
-    # Convert bbox from [x1, y1, x2, y2] to (x0, y0, x1, y1)
-    x0, y0, x1, y1 = bbox[0], bbox[1], bbox[2], bbox[3]
-    
-    # Get text blocks with font info
-    blocks = page.get_text("dict")["blocks"]
-    
-    # Store font sizes, weights, colors, and font names for text in the region
-    font_sizes = []
-    is_bold = False
-    font_names = []
-    colors = []
-    
-    for block in blocks:
-        if "lines" not in block:
-            continue
-            
-        for line in block["lines"]:
-            for span in line["spans"]:
-                # Check if span is within the bbox
-                span_rect = fitz.Rect(span["bbox"])
-                region_rect = fitz.Rect(x0, y0, x1, y1)
+    try:
+        doc = fitz.open(pdf_path)
+        page = doc[page_num]
+        
+        # Convert bbox from [x1, y1, x2, y2] to (x0, y0, x1, y1)
+        x0, y0, x1, y1 = bbox[0], bbox[1], bbox[2], bbox[3]
+        
+        # Get text blocks with font info
+        blocks = page.get_text("dict")["blocks"]
+        
+        # Store font sizes, weights, colors, and font names for text in the region
+        font_sizes = []
+        is_bold = False
+        font_names = []
+        colors = []
+        
+        for block in blocks:
+            if "lines" not in block:
+                continue
                 
-                if region_rect.intersects(span_rect):
-                    font_sizes.append(span["size"])
-                    # Check if font is bold
-                    if "bold" in span["font"].lower():
-                        is_bold = True
-                    # Store font name and color
-                    font_names.append(span["font"])
-                    colors.append(span["color"])
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    # Check if span is within the bbox
+                    span_rect = fitz.Rect(span["bbox"])
+                    region_rect = fitz.Rect(x0, y0, x1, y1)
+                    
+                    if region_rect.intersects(span_rect):
+                        font_sizes.append(span["size"])
+                        # Check if font is bold
+                        if "bold" in span["font"].lower():
+                            is_bold = True
+                        # Store font name and color
+                        font_names.append(span["font"])
+                        colors.append(span["color"])
+        
+        # Calculate average font size if any fonts found
+        avg_font_size = np.mean(font_sizes) if font_sizes else 0
+        
+        # Get most common font name
+        most_common_font = max(set(font_names), key=font_names.count) if font_names else ""
+        
+        # Get most common color
+        most_common_color = max(set(colors), key=colors.count) if colors else 0
+    except Exception as e:
+        print(f"Warning: Error extracting font info: {e}")
+        # Return default values if an error occurs
+        avg_font_size = 0
+        is_bold = False
+        most_common_font = ""
+        most_common_color = 0
+    finally:
+        if 'doc' in locals():
+            doc.close()
     
-    # Calculate average font size if any fonts found
-    avg_font_size = np.mean(font_sizes) if font_sizes else 0
-    
-    # Get most common font name
-    most_common_font = max(set(font_names), key=font_names.count) if font_names else ""
-    
-    # Get most common color
-    most_common_color = max(set(colors), key=colors.count) if colors else 0
-    
-    doc.close()
     return {
         "avg_font_size": avg_font_size,
         "is_bold": is_bold,
@@ -259,13 +269,12 @@ def classify_heading_level(features, prev_heading_level=None):
     # Strong indicators for H2
     if (norm_font_size > 0.75 or 
         (is_bold and norm_font_size > 0.25) or 
-        (has_numbering and re.match(r'^\d+\.\s', text))):
+        has_numbering):  # Simplified condition without text reference
         return "H2"
     
     # Strong indicators for H3
     if (norm_font_size > 0.25 or 
-        (is_bold and norm_font_size > 0) or 
-        (has_numbering and re.match(r'^\d+\.\d+\.\s', text))):
+        (is_bold and norm_font_size > 0)):  # Simplified condition without text reference
         return "H3"
     
     # Consider previous heading level for hierarchical consistency
@@ -344,10 +353,14 @@ def classify_and_extract_headings(result, pdf_path, page_num, doc_language='en')
             continue
         
         # Create feature vector
-        features = create_feature_vector(block, mean_font_size, std_font_size, page_height, text_blocks)
-        
-        # Classify heading level
-        heading_level = classify_heading_level(features, prev_heading_level)
+        try:
+            features = create_feature_vector(block, mean_font_size, std_font_size, page_height, text_blocks)
+            
+            # Classify heading level
+            heading_level = classify_heading_level(features, prev_heading_level)
+        except Exception as e:
+            print(f"Warning: Error during feature extraction or heading classification: {e}")
+            heading_level = None
         
         # Additional check for heading patterns
         if not heading_level and is_heading_by_pattern(text, doc_language):
@@ -379,12 +392,39 @@ def extract_title(result, pdf_path):
     Uses multiple heuristics to identify the title.
     """
     if not result:
+        # Try directly extracting title from PyMuPDF as fallback
+        try:
+            doc = fitz.open(pdf_path)
+            # Get first page text
+            first_page_text = doc[0].get_text()
+            # Get metadata
+            metadata_title = doc.metadata.get("title", "")
+            doc.close()
+            
+            # If metadata has title, use it
+            if metadata_title and len(metadata_title) > 3:
+                return metadata_title
+                
+            # Otherwise extract first non-empty line from first page
+            lines = [line.strip() for line in first_page_text.split('\n') if line.strip()]
+            if lines:
+                # Use first line that's not too long and not too short
+                for line in lines:
+                    if 3 < len(line) < 100:
+                        return line
+                # If no suitable line found, use first line
+                if lines:
+                    return lines[0]
+        except Exception as e:
+            print(f"Warning: Failed to extract fallback title: {e}")
         return "Unknown Title"
     
     # Strategy 1: Use PP-DocLayout title type
     for item in result:
         if item.get("type") == "title":
-            return item.get("text", "").strip()
+            title_text = item.get("text", "").strip()
+            if title_text:  # Ensure title is not empty
+                return title_text
     
     # Strategy 2: Use font size and position
     text_blocks = []
@@ -397,22 +437,47 @@ def extract_title(result, pdf_path):
             if not text:
                 continue
             
-            # Get font info
-            font_info = get_font_info(pdf_path, 0, bbox)
-            
-            text_blocks.append({
-                "text": text,
-                "font_size": font_info["avg_font_size"],
-                "is_bold": font_info["is_bold"],
-                "y_position": bbox[1],  # Top position
-                "x_position": bbox[0],  # Left position
-                "width": bbox[2] - bbox[0],
-                "is_centered": False
-            })
+            # Get font info (with error handling)
+            try:
+                font_info = get_font_info(pdf_path, 0, bbox)
+                
+                text_blocks.append({
+                    "text": text,
+                    "font_size": font_info["avg_font_size"],
+                    "is_bold": font_info["is_bold"],
+                    "y_position": bbox[1],  # Top position
+                    "x_position": bbox[0],  # Left position
+                    "width": bbox[2] - bbox[0],
+                    "is_centered": False
+                })
+            except Exception as e:
+                print(f"Warning: Error getting font info for title extraction: {e}")
+                # Still add the text block with default values
+                text_blocks.append({
+                    "text": text,
+                    "font_size": 0,
+                    "is_bold": False,
+                    "y_position": bbox[1],
+                    "x_position": bbox[0],
+                    "width": bbox[2] - bbox[0],
+                    "is_centered": False
+                })
     
-    # If no text blocks, return default
+    # If no text blocks, try fallback approach
     if not text_blocks:
-        return "Unknown Title"
+        try:
+            doc = fitz.open(pdf_path)
+            # Get metadata
+            metadata_title = doc.metadata.get("title", "")
+            doc.close()
+            
+            if metadata_title and len(metadata_title) > 3:
+                return metadata_title
+                
+            # If no metadata title, return default
+            return "Unknown Title"
+        except:
+            return "Unknown Title"
     
     # Calculate page width to determine if text is centered
     doc = fitz.open(pdf_path)
@@ -455,35 +520,149 @@ def process_pdf(pdf_path):
     title = "Unknown Title"
     doc_language = 'en'  # Default language
     
+    # First check how many pages the PDF has
+    try:
+        doc = fitz.open(pdf_path)
+        total_pages = len(doc)
+        print(f"PDF has {total_pages} pages")
+        doc.close()
+    except Exception as e:
+        print(f"Warning: Could not determine page count: {e}")
+        total_pages = 0
+    
     try:
         # Open the PDF
         doc = fitz.open(pdf_path)
         
+        # Try to get title from metadata first
+        metadata_title = doc.metadata.get("title", "")
+        if metadata_title and len(metadata_title.strip()) > 3:
+            title = metadata_title.strip()
+        
         # Process each page
         for page_num in range(len(doc)):
-            # Convert PDF page to image
-            page = doc[page_num]
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            img_np = np.array(img)
+            try:
+                # First attempt: Direct text extraction with PyMuPDF
+                page = doc[page_num]
+                page_text = page.get_text("dict")
+                
+                # Fallback text extraction for title on first page
+                if page_num == 0 and title == "Unknown Title":
+                    # Get first few text blocks and check for potential title
+                    blocks = page_text.get("blocks", [])
+                    if blocks:
+                        # Try to find title in first few text blocks
+                        for i, block in enumerate(blocks[:3]):  # Check first 3 blocks
+                            if "lines" in block:
+                                for line in block["lines"]:
+                                    if "spans" in line:
+                                        text = " ".join([span.get("text", "").strip() for span in line["spans"]])
+                                        if text and 3 < len(text) < 100:
+                                            title = text
+                                            break
+                
+                # Extract language if not detected yet
+                if page_num == 0:
+                    try:
+                        text_content = page.get_text()
+                        if text_content:
+                            doc_language = detect_language(text_content)
+                    except:
+                        pass
+                
+                # Analyze blocks directly from PyMuPDF for headings
+                pymupdf_headings = []
+                for block in page_text.get("blocks", []):
+                    if "lines" not in block:
+                        continue
+                    
+                    for line in block["lines"]:
+                        if "spans" not in line:
+                            continue
+                            
+                        # Get text and font info from spans
+                        text = " ".join([span.get("text", "").strip() for span in line["spans"]])
+                        if not text or len(text) > 100:  # Skip empty or very long text
+                            continue
+                            
+                        # Get font attributes from first span (main span)
+                        if line["spans"]:
+                            main_span = line["spans"][0]
+                            font_size = main_span.get("size", 0)
+                            font_name = main_span.get("font", "")
+                            is_bold = "bold" in font_name.lower()
+                            
+                            # Classify as heading based on font properties and text
+                            heading_level = None
+                            
+                            # Simple heuristic: larger fonts are higher-level headings
+                            if font_size > 14 or is_bold and font_size > 12:
+                                heading_level = "H1"
+                            elif font_size > 12 or is_bold and font_size > 10:
+                                heading_level = "H2"
+                            elif font_size > 10 or is_bold:
+                                heading_level = "H3"
+                            elif is_heading_by_pattern(text, doc_language):
+                                heading_level = "H3"  # Default to H3 for pattern-based headings
+                            
+                            if heading_level:
+                                pymupdf_headings.append({
+                                    "level": heading_level,
+                                    "text": text,
+                                    "page": page_num + 1  # 1-indexed page numbers
+                                })
+                
+                # Now try with PP-Structure for better layout analysis
+                try:
+                    # Convert PDF page to image
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    img_np = np.array(img)
+                    
+                    # Preprocess the image
+                    preprocessed_img = preprocess_image(img_np)
+                    
+                    # Process the image with PP-Structure
+                    result = table_engine(preprocessed_img)
+                    
+                    # Extract title from the first page
+                    if page_num == 0 and title == "Unknown Title":
+                        try:
+                            title = extract_title(result, pdf_path)
+                        except Exception as e:
+                            print(f"Warning: Error extracting title: {e}")
+                    
+                    # Detect document language from first page text
+                    if page_num == 0:
+                        try:
+                            all_text = " ".join([item.get("text", "") for item in result if item.get("type") == "text"])
+                            if all_text:
+                                doc_language = detect_language(all_text)
+                        except Exception as e:
+                            print(f"Warning: Error detecting language: {e}")
+                    
+                    # Extract headings from the page using PP-Structure
+                    try:
+                        paddle_headings = classify_and_extract_headings(result, pdf_path, page_num, doc_language)
+                        
+                        # If we got headings from PP-Structure, use those instead of PyMuPDF headings
+                        if paddle_headings:
+                            outline.extend(paddle_headings)
+                        else:
+                            outline.extend(pymupdf_headings)
+                    except Exception as e:
+                        print(f"Warning: Error extracting headings from PP-Structure: {e}")
+                        # Fallback to PyMuPDF headings
+                        outline.extend(pymupdf_headings)
+                
+                except Exception as e:
+                    print(f"Warning: PP-Structure processing failed: {e}")
+                    # Fallback to PyMuPDF headings
+                    outline.extend(pymupdf_headings)
             
-            # Preprocess the image
-            preprocessed_img = preprocess_image(img_np)
-            
-            # Process the image with PP-Structure
-            result = table_engine(preprocessed_img)
-            
-            # Extract title from the first page
-            if page_num == 0:
-                title = extract_title(result, pdf_path)
-                # Detect document language from first page text
-                all_text = " ".join([item.get("text", "") for item in result if item.get("type") == "text"])
-                if all_text:
-                    doc_language = detect_language(all_text)
-            
-            # Extract headings from the page
-            page_headings = classify_and_extract_headings(result, pdf_path, page_num, doc_language)
-            outline.extend(page_headings)
+            except Exception as e:
+                print(f"Warning: Error processing page {page_num}: {e}")
+                continue
         
         doc.close()
         
@@ -491,14 +670,23 @@ def process_pdf(pdf_path):
         print(f"Error processing PDF {pdf_path}: {e}")
         return {"title": title, "outline": outline}
     
-    # Sort outline by page number
-    outline.sort(key=lambda x: x["page"])
+    # Deduplicate outline entries
+    seen_entries = set()
+    unique_outline = []
+    for item in outline:
+        entry_key = f"{item['level']}:{item['text']}:{item['page']}"
+        if entry_key not in seen_entries:
+            seen_entries.add(entry_key)
+            unique_outline.append(item)
+    
+    # Sort outline by page number and then by position on page
+    unique_outline.sort(key=lambda x: x["page"])
     
     # Post-process the outline to ensure hierarchical consistency
     processed_outline = []
     current_levels = {"H1": None, "H2": None, "H3": None}
     
-    for item in outline:
+    for item in unique_outline:
         level = item["level"]
         
         # Update the current level
@@ -516,6 +704,118 @@ def process_pdf(pdf_path):
     print(f"Processed in {time.time() - start_time:.2f} seconds")
     return {"title": title, "outline": processed_outline}
 
+def extract_toc_from_pdf(pdf_path):
+    """Extract table of contents directly from PDF if available"""
+    try:
+        doc = fitz.open(pdf_path)
+        toc = doc.get_toc()
+        total_pages = len(doc)  # Get total number of pages
+        doc.close()
+        
+        if toc:
+            outline = []
+            for level, title, page in toc:
+                if level <= 3:  # Only include up to H3
+                    heading_level = f"H{level}"
+                    outline.append({
+                        "level": heading_level,
+                        "text": title,
+                        "page": page
+                    })
+            return outline, total_pages
+    except Exception as e:
+        print(f"Warning: Failed to extract TOC: {e}")
+    
+    return None, 0
+
+def force_process_all_pages(pdf_path):
+    """
+    Force processing of all pages in the PDF to extract headings.
+    This is a more aggressive approach when normal extraction fails.
+    """
+    outline = []
+    try:
+        doc = fitz.open(pdf_path)
+        total_pages = len(doc)
+        print(f"Force processing all {total_pages} pages in {pdf_path}")
+        
+        # Process each page individually
+        for page_num in range(total_pages):
+            try:
+                print(f"Force processing page {page_num+1}/{total_pages}")
+                page = doc[page_num]
+                
+                # Extract all text blocks with formatting
+                blocks = page.get_text("dict").get("blocks", [])
+                
+                for block in blocks:
+                    if "lines" not in block:
+                        continue
+                        
+                    for line_idx, line in enumerate(block["lines"]):
+                        if "spans" not in line:
+                            continue
+                            
+                        # Get text and font info
+                        spans = line["spans"]
+                        if not spans:
+                            continue
+                            
+                        text = " ".join([span.get("text", "").strip() for span in spans])
+                        if not text or len(text) < 3 or len(text) > 100:  # Skip empty or too long
+                            continue
+                        
+                        # Get maximum font size and check if bold
+                        max_font_size = 0
+                        is_bold = False
+                        for span in spans:
+                            font_size = span.get("size", 0)
+                            if font_size > max_font_size:
+                                max_font_size = font_size
+                            if "bold" in span.get("font", "").lower():
+                                is_bold = True
+                        
+                        # Determine if this is likely a heading
+                        is_heading = (
+                            # Formatting-based criteria
+                            (max_font_size > 11) or
+                            (is_bold) or
+                            # First line in a block
+                            (line_idx == 0 and len(text) < 50) or
+                            # Pattern-based criteria
+                            (re.match(r'^\d+\.', text)) or
+                            (re.match(r'^[A-Z][A-Za-z\s]+$', text) and len(text) < 40) or
+                            (text.isupper() and len(text) < 30)
+                        )
+                        
+                        if is_heading:
+                            # Determine heading level
+                            if max_font_size > 14 or (is_bold and max_font_size > 12):
+                                level = "H1"
+                            elif max_font_size > 12 or is_bold:
+                                level = "H2"
+                            else:
+                                level = "H3"
+                            
+                            # Add to outline
+                            outline.append({
+                                "level": level,
+                                "text": text,
+                                "page": page_num + 1  # 1-indexed page numbers
+                            })
+                            print(f"Found heading on page {page_num+1}: {level} - {text}")
+            
+            except Exception as e:
+                print(f"Warning: Error in force processing page {page_num+1}: {e}")
+                continue
+        
+        doc.close()
+        
+    except Exception as e:
+        print(f"Error in force_process_all_pages: {e}")
+    
+    return outline
+
 def main():
     """Main function to process all PDFs in the input directory."""
     print(f"Starting PDF outline extraction")
@@ -528,7 +828,7 @@ def main():
     # Find all PDF files in the input directory
     pdf_files = []
     for entry in os.scandir(INPUT_DIR):
-        if entry.is_file() and entry.name.lower().endswith('.pdf'):
+        if entry.is_file() and entry.name.lower().endswith('.pdf') and not entry.name.endswith('.pdfZone.Identifier'):
             pdf_files.append(entry.path)
     
     print(f"Found {len(pdf_files)} PDF files to process")
@@ -541,8 +841,145 @@ def main():
             output_name = os.path.splitext(base_name)[0] + ".json"
             output_path = os.path.join(OUTPUT_DIR, output_name)
             
-            # Process the PDF
-            result = process_pdf(pdf_path)
+            # Get the total number of pages
+            try:
+                doc = fitz.open(pdf_path)
+                total_pages = len(doc)
+                doc.close()
+                print(f"PDF {base_name} has {total_pages} pages")
+            except Exception as e:
+                print(f"Warning: Could not determine page count: {e}")
+                total_pages = 0
+            
+            # First try to extract from embedded table of contents
+            toc_outline, _ = extract_toc_from_pdf(pdf_path)
+            
+            if toc_outline and len(toc_outline) > 0:
+                # Use the built-in TOC
+                # Get title separately
+                doc = fitz.open(pdf_path)
+                title = doc.metadata.get("title", "")
+                if not title or len(title.strip()) < 3:
+                    # Extract first line of text as title
+                    first_page_text = doc[0].get_text()
+                    lines = [line.strip() for line in first_page_text.split('\n') if line.strip()]
+                    if lines:
+                        for line in lines[:5]:  # Check first 5 lines
+                            if 3 < len(line) < 100:
+                                title = line
+                                break
+                        if not title:
+                            title = lines[0]
+                doc.close()
+                
+                result = {
+                    "title": title,
+                    "outline": toc_outline
+                }
+            else:
+                # Process the PDF with our extraction algorithm
+                result = process_pdf(pdf_path)
+                
+                # Try forced processing for all pages to ensure we get headings from every page
+                try:
+                    doc = fitz.open(pdf_path)
+                    total_pages = len(doc)
+                    doc.close()
+                    
+                    # Force process if we have fewer headings than pages
+                    if len(result["outline"]) < total_pages:
+                        print(f"Found only {len(result['outline'])} headings for {total_pages} pages, trying forced processing")
+                        force_outline = force_process_all_pages(pdf_path)
+                        
+                        # If we found more headings with forced processing, use those instead
+                        if len(force_outline) > len(result["outline"]):
+                            print(f"Force processing found {len(force_outline)} headings, using these instead")
+                            result["outline"] = force_outline
+                except Exception as e:
+                    print(f"Warning: Could not check page count or force process: {e}")
+                    
+                # Ensure we have at least a default title
+            if not result["title"] or result["title"] == "Unknown Title":
+                # Try to use filename as title
+                filename_title = os.path.splitext(base_name)[0]
+                if len(filename_title) > 3:
+                    result["title"] = filename_title
+            
+            # If we have very few or no headings, try a more aggressive extraction
+            if not result["outline"] or (total_pages > 3 and len(result["outline"]) < 3):
+                try:
+                    doc = fitz.open(pdf_path)
+                    fallback_outline = []
+                    
+                    # Scan EVERY page for potential headings
+                    for page_num in range(len(doc)):
+                        print(f"Processing page {page_num+1}/{len(doc)} of {base_name}")
+                        page = doc[page_num]
+                        
+                        # Get text with detailed formatting info
+                        blocks = page.get_text("dict").get("blocks", [])
+                        
+                        for block in blocks:
+                            if "lines" not in block:
+                                continue
+                            
+                            for line_idx, line in enumerate(block["lines"]):
+                                if "spans" not in line:
+                                    continue
+                                    
+                                # Get text from spans
+                                text = " ".join([span.get("text", "").strip() for span in line["spans"]])
+                                if not text or len(text) < 3 or len(text) > 100:
+                                    continue
+                                
+                                # Get formatting attributes
+                                is_bold = False
+                                font_size = 0
+                                if line["spans"]:
+                                    span = line["spans"][0]
+                                    font_size = span.get("size", 0)
+                                    is_bold = "bold" in span.get("font", "").lower()
+                                
+                                # Improved heading detection: 
+                                # - Short text (< 80 chars)
+                                # - Large font or bold text
+                                # - Not ending with punctuation 
+                                # - Or has numbering pattern
+                                is_potential_heading = (
+                                    len(text) < 80 and
+                                    (font_size > 10 or is_bold or
+                                     line_idx == 0 and len(text) < 40) and
+                                    (not text[-1] in ".,:;?!" or 
+                                     re.match(r'^\d+\.', text) or 
+                                     re.match(r'^[A-Z][A-Za-z\s]+$', text) or
+                                     re.match(r'^[IVXLCDM]+\.\s', text))
+                                )
+                                
+                                if is_potential_heading:
+                                    # Determine level based on formatting and position
+                                    if font_size > 14 or (is_bold and font_size > 12) or page_num == 0 and line_idx == 0:
+                                        level = "H1"
+                                    elif font_size > 12 or is_bold:
+                                        level = "H2"
+                                    else:
+                                        level = "H3"
+                                        
+                                    fallback_outline.append({
+                                        "level": level,
+                                        "text": text,
+                                        "page": page_num + 1
+                                    })
+                    
+                    doc.close()
+                    
+                    # Add fallback outline if we found potential headings
+                    if fallback_outline:
+                        # Only replace if we found more headings or had none before
+                        if len(fallback_outline) > len(result["outline"]):
+                            result["outline"] = fallback_outline
+                        
+                except Exception as e:
+                    print(f"Warning: Fallback extraction failed: {e}")
             
             # Write the result to a JSON file
             with open(output_path, 'w', encoding='utf-8') as f:
@@ -552,6 +989,10 @@ def main():
             
         except Exception as e:
             print(f"Error processing {pdf_path}: {e}")
+            # Ensure we always create an output file
+            output_path = os.path.join(OUTPUT_DIR, os.path.splitext(os.path.basename(pdf_path))[0] + ".json")
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump({"title": os.path.basename(pdf_path), "outline": []}, f, indent=2)
     
     print("PDF outline extraction complete")
 

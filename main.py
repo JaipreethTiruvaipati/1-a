@@ -88,43 +88,183 @@ def get_font_info(pdf_path, page_num, bbox):
 def is_heading_by_pattern(text, language='en'):
     """
     Check if text matches common heading patterns.
-    Supports multiple languages.
+    Supports multiple languages including:
+    - English (en)
+    - Japanese (ja)
+    - Spanish (es)
+    - French (fr)
+    - German (de)
+    - Chinese (zh)
+    - Arabic (ar)
+    - Russian (ru)
+    - Hindi (hi)
+    - Portuguese (pt)
+    - Italian (it)
+    - Dutch (nl)
+    - Korean (ko)
+    - Turkish (tr)
+    - Polish (pl)
+    - Swedish (sv)
+    - Danish (da)
+    - Norwegian (no)
+    - Finnish (fi)
+    - Vietnamese (vi)
+    - Thai (th)
     """
-    if language == 'en' or language.startswith('en-'):
-        # English patterns
-        # Check for numbered headings (e.g., 1., 1.1., 1.1.1.)
-        if re.match(r'^\d+\.(\d+\.)*\s', text):
-            return True
+    # Skip empty or very short text
+    if not text or len(text.strip()) < 2:
+        return False
+    
+    # Common numeric patterns across languages
+    # Check for numbered headings (e.g., 1., 1.1., 1.1.1.)
+    if re.match(r'^\d+\.(\d+\.)*\s', text):
+        return True
         
+    # Check for parenthesized numbers (e.g., (1), (1.2))
+    if re.match(r'^\(\d+(\.\d+)*\)', text):
+        return True
+    
+    # Check for Roman numerals - common in many languages
+    if re.match(r'^[IVXLCDM]+\.\s', text) or re.match(r'^[IVXLCDM]+\s', text):
+        return True
+    
+    # Check for bullet points and other list markers
+    if re.match(r'^[•※⚫⚪◦○●◉◎■□▪▫★☆♦♣♠♥➤➢➡⇒→-]\s', text):
+        return True
+        
+    # Language-specific patterns
+    lang_prefix = language.split('-')[0] if '-' in language else language
+    
+    # English patterns
+    if lang_prefix == 'en':
         # Check for alphabetic headings (e.g., A., a., i., I.)
         if re.match(r'^[A-Za-z]\.(\s|\d)', text):
             return True
         
-        # Check for Roman numerals
-        if re.match(r'^[IVXLCDM]+\.\s', text):
-            return True
-        
-        # Check for common heading words
-        heading_words = ['chapter', 'section', 'introduction', 'conclusion', 'appendix']
+        # Check for common English heading words
+        heading_words = ['chapter', 'section', 'introduction', 'conclusion', 'appendix', 'part', 
+                         'summary', 'abstract', 'overview', 'preface', 'foreword', 'glossary']
         if any(text.lower().startswith(word) for word in heading_words):
             return True
     
-    elif language == 'ja' or language.startswith('ja-'):
-        # Japanese patterns
-        # Check for Japanese section markers (e.g., 第1章, 1.1節)
-        if re.search(r'第\d+章|節', text):
+    # Japanese patterns
+    elif lang_prefix == 'ja':
+        # Check for Japanese section markers (e.g., 第1章, 1.1節, はじめに)
+        if re.search(r'第\d+章|節|はじめに|まとめ|概要|要約', text):
             return True
-        
-        # Check for Japanese numbering patterns
-        if re.match(r'^\d+\.\s', text) or re.match(r'^\(\d+\)', text):
+    
+    # Spanish patterns
+    elif lang_prefix == 'es':
+        heading_words = ['capítulo', 'sección', 'parte', 'introducción', 'conclusión', 
+                         'resumen', 'apéndice', 'prólogo', 'prefacio', 'glosario']
+        if any(text.lower().startswith(word) for word in heading_words):
+            return True
+    
+    # French patterns
+    elif lang_prefix == 'fr':
+        heading_words = ['chapitre', 'section', 'partie', 'introduction', 'conclusion', 
+                        'résumé', 'annexe', 'préface', 'avant-propos', 'glossaire']
+        if any(text.lower().startswith(word) for word in heading_words):
+            return True
+    
+    # German patterns
+    elif lang_prefix == 'de':
+        heading_words = ['kapitel', 'abschnitt', 'teil', 'einleitung', 'zusammenfassung',
+                         'anhang', 'vorwort', 'glossar', 'überblick', 'einführung']
+        if any(text.lower().startswith(word) for word in heading_words):
+            return True
+    
+    # Chinese patterns
+    elif lang_prefix == 'zh':
+        # Check for Chinese section markers (e.g., 第1章, 第一节, 引言, 总结)
+        if re.search(r'第[一二三四五六七八九十百千万\d]+[章节篇部分]|引言|简介|摘要|总结|附录|概述', text):
+            return True
+    
+    # Arabic patterns
+    elif lang_prefix == 'ar':
+        # Check for Arabic section markers and heading words
+        if re.search(r'الفصل|القسم|الجزء|المقدمة|الخاتمة|الملخص|الملحق|تمهيد|مقدمة|خلاصة', text):
+            return True
+    
+    # Russian patterns
+    elif lang_prefix == 'ru':
+        heading_words = ['глава', 'раздел', 'часть', 'введение', 'заключение', 
+                         'аннотация', 'приложение', 'предисловие', 'резюме', 'обзор']
+        if any(text.lower().startswith(word) for word in heading_words):
+            return True
+    
+    # Hindi patterns
+    elif lang_prefix == 'hi':
+        heading_words = ['अध्याय', 'खंड', 'भाग', 'परिचय', 'निष्कर्ष', 'सारांश', 'परिशिष्ट']
+        if any(text.startswith(word) for word in heading_words):
+            return True
+    
+    # Portuguese patterns
+    elif lang_prefix == 'pt':
+        heading_words = ['capítulo', 'seção', 'parte', 'introdução', 'conclusão', 
+                         'resumo', 'apêndice', 'prefácio', 'glossário']
+        if any(text.lower().startswith(word) for word in heading_words):
+            return True
+    
+    # Italian patterns
+    elif lang_prefix == 'it':
+        heading_words = ['capitolo', 'sezione', 'parte', 'introduzione', 'conclusione', 
+                         'riassunto', 'appendice', 'prefazione', 'glossario']
+        if any(text.lower().startswith(word) for word in heading_words):
+            return True
+            
+    # Korean patterns
+    elif lang_prefix == 'ko':
+        if re.search(r'제\s*\d+\s*장|서론|결론|요약|부록|개요|소개', text):
+            return True
+            
+    # Turkish patterns
+    elif lang_prefix == 'tr':
+        heading_words = ['bölüm', 'kısım', 'giriş', 'sonuç', 'özet', 'ek', 'önsöz']
+        if any(text.lower().startswith(word) for word in heading_words):
+            return True
+    
+    # Thai patterns
+    elif lang_prefix == 'th':
+        if re.search(r'บทที่|ส่วนที่|บทนำ|สรุป|ภาคผนวก|บทคัดย่อ', text):
+            return True
+            
+    # Vietnamese patterns
+    elif lang_prefix == 'vi':
+        heading_words = ['chương', 'phần', 'mục', 'giới thiệu', 'kết luận', 'tóm tắt', 'phụ lục']
+        if any(text.lower().startswith(word) for word in heading_words):
             return True
     
     # Universal patterns that work across languages
-    # Check for short text that's likely a heading (less than 50 chars, not ending with period)
-    if len(text) < 50 and not text.endswith('.') and not text.endswith('。'):
-        # Check if all caps or first letter of each word is capitalized
-        if text.isupper() or text.title() == text:
-            return True
+    
+    # Check for section numbering with various separators (1-1, 1_1, etc.)
+    if re.match(r'^\d+[\.-_]\d+', text):
+        return True
+        
+    # Check for short text that's likely a heading (less than 50 chars, not ending with sentence-ending punctuation)
+    if len(text) < 50:
+        # Check for common sentence-ending punctuation across languages
+        sentence_endings = ['.', '。', '؟', '!', '?', '።', '۔', '។', '၊', '።', '។', '።']
+        if not any(text.rstrip().endswith(ending) for ending in sentence_endings):
+            # Check for text formatting that suggests a heading
+            if text.isupper() or text.title() == text:
+                return True
+            
+            # Check if text starts with a capital letter and is short (likely a heading)
+            if len(text) < 30 and text[0].isupper():
+                return True
+            
+            # Check for indented or centered text (first character is space)
+            if text.startswith(' ') and len(text.strip()) < 40:
+                return True
+                
+            # Check for unusual whitespace that might indicate heading
+            if text.count(' ') < 2 and len(text) < 25:
+                return True
+    
+    # Check for text that ends with a colon (often indicates a heading)
+    if text.rstrip().endswith(':') and len(text) < 60:
+        return True
     
     return False
 
@@ -182,11 +322,49 @@ def preprocess_image(img_np):
 def detect_language(text):
     """
     Detect the language of the text.
-    Returns language code (e.g., 'en', 'ja').
+    Returns language code (e.g., 'en', 'ja', 'zh', 'ar', etc.).
+    Uses a more robust approach with fallbacks.
     """
+    if not text or len(text.strip()) < 10:
+        return 'en'  # Default to English if text is too short
+    
+    # Try multiple samples from the text to improve accuracy
     try:
-        return langdetect.detect(text)
-    except:
+        # Clean the text - remove numbers, special chars and excessive whitespace
+        clean_text = re.sub(r'\d+', ' ', text)
+        clean_text = re.sub(r'[^\w\s]', ' ', clean_text)
+        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+        
+        if len(clean_text) > 100:
+            # Take samples from different parts of the document
+            samples = [
+                clean_text[:100],  # Start
+                clean_text[len(clean_text)//2:len(clean_text)//2+100],  # Middle
+                clean_text[-100:]  # End
+            ]
+            
+            # Detect language for each sample
+            langs = []
+            for sample in samples:
+                try:
+                    if len(sample.strip()) > 10:  # Only consider samples with enough text
+                        langs.append(langdetect.detect(sample))
+                except:
+                    continue
+            
+            # Return the most common language detected
+            if langs:
+                from collections import Counter
+                most_common_lang = Counter(langs).most_common(1)[0][0]
+                print(f"Detected language: {most_common_lang} (from multiple samples)")
+                return most_common_lang
+        
+        # If we couldn't use multiple samples, try with the whole text
+        lang = langdetect.detect(clean_text)
+        print(f"Detected language: {lang}")
+        return lang
+    except Exception as e:
+        print(f"Language detection failed: {e}, defaulting to English")
         return 'en'  # Default to English if detection fails
 
 def create_feature_vector(block, mean_font_size, std_font_size, page_height, all_blocks):
@@ -507,10 +685,14 @@ def extract_title(result, pdf_path):
     # Fallback to the first text block if nothing else works
     return text_blocks[0]["text"] if text_blocks else "Unknown Title"
 
-def process_pdf(pdf_path):
+def process_pdf(pdf_path, lang=None):
     """
     Process a single PDF file and extract its outline.
     Returns a dictionary with title and outline.
+    
+    Args:
+        pdf_path (str): Path to the PDF file
+        lang (str, optional): Language code if known. Defaults to None (will be detected).
     """
     print(f"Processing: {pdf_path}")
     start_time = time.time()
@@ -518,7 +700,6 @@ def process_pdf(pdf_path):
     # Initialize the outline
     outline = []
     title = "Unknown Title"
-    doc_language = 'en'  # Default language
     
     # First check how many pages the PDF has
     try:
@@ -529,6 +710,9 @@ def process_pdf(pdf_path):
     except Exception as e:
         print(f"Warning: Could not determine page count: {e}")
         total_pages = 0
+    
+    # Detect language if not provided
+    doc_language = lang if lang else 'en'  # Default to English
     
     try:
         # Open the PDF
@@ -818,7 +1002,7 @@ def force_process_all_pages(pdf_path):
 
 def main():
     """Main function to process all PDFs in the input directory."""
-    print(f"Starting PDF outline extraction")
+    print(f"Starting PDF outline extraction with multi-language support")
     print(f"Input directory: {INPUT_DIR}")
     print(f"Output directory: {OUTPUT_DIR}")
     

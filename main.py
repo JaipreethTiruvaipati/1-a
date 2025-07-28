@@ -313,8 +313,10 @@ def classify_and_extract_headings(result, pdf_path, page_num, doc_language='en')
             bbox = block.get("bbox", [0, 0, 0, 0])
             text = block.get("text", "").strip()
             
-            # Skip empty text
+            # For empty text blocks, set a default font_size and skip.
+            # This prevents a KeyError in the list comprehension below.
             if not text:
+                block['font_size'] = 0
                 continue
             
             # Get font info

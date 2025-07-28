@@ -9,7 +9,7 @@ This script can be used to test the solution without Docker.
 import os
 import sys
 import json
-from main import process_pdf
+from input.main import process_pdf
 
 def test_pdf_extraction(pdf_path, output_path):
     """Test the PDF extraction on a single file."""
